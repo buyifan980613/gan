@@ -1,16 +1,17 @@
 import tensorflow as tf
-from tensorflow.keras import layers
+from tensorflow.keras.layers import Dense, BatchNormalization, LeakyReLU, Reshape, Conv2DTranspose, Conv2D, Dropout, Flatten, Embedding, multiply
 from tensorflow.keras.models import Model
 import matplotlib.pyplot as plt
 from tensorflow import keras
 import numpy as np
 from tensorflow.compat.v1 import ConfigProto
 from tensorflow.compat.v1 import InteractiveSession
+import os
 
 config = ConfigProto()
 config.gpu_options.allow_growth = True
 session = InteractiveSession(config=config)
-
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 generator_optimizer = tf.keras.optimizers.Adam(1e-4)
@@ -19,54 +20,54 @@ noise_dim = 100
 BUFFER_SIZE = 60000
 BATCH_SIZE = 256
 num_examples_to_generate = 16
-EPOCHS = 5
+EPOCHS = 1
 
 
 def cgan_generator():
     model = tf.keras.Sequential()
-    model.add(layers.Dense(7 * 7 * 256, use_bias=False, input_shape=(100,)))
-    model.add(layers.BatchNormalization())
-    model.add(layers.LeakyReLU())
+    model.add(Dense(7 * 7 * 256, use_bias=False, input_shape=(100,)))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
 
-    model.add(layers.Reshape((7, 7, 256)))
-    model.add(layers.Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False))
-    model.add(layers.BatchNormalization())
-    model.add(layers.LeakyReLU())
+    model.add(Reshape((7, 7, 256)))
+    model.add(Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
 
-    model.add(layers.Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', use_bias=False))
-    model.add(layers.BatchNormalization())
-    model.add(layers.LeakyReLU())
+    model.add(Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', use_bias=False))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
 
-    model.add(layers.Conv2DTranspose(1, (5, 5), strides=(2, 2), padding='same', use_bias=False, activation='tanh'))
+    model.add(Conv2DTranspose(1, (5, 5), strides=(2, 2), padding='same', use_bias=False, activation='tanh'))
 
     noise = keras.Input(shape=(100,))
     label = keras.Input(shape=(1,))
-    label_embedding = layers.Flatten()(layers.Embedding(10,100)(label))
-    model_input = layers.multiply([noise,label_embedding])
+    label_embedding = Flatten()(Embedding(10,100)(label))
+    model_input = multiply([noise,label_embedding])
     img = model(model_input)
     return Model([noise,label],img)
 
 
 def cgan_discriminator():
     model = tf.keras.Sequential()
-    model.add(layers.Conv2D(64, (5, 5), strides=(2, 2), padding='same',input_shape=[28, 28, 1]))
-    model.add(layers.LeakyReLU())
-    model.add(layers.Dropout(0.3))
+    model.add(Conv2D(64, (5, 5), strides=(2, 2), padding='same',input_shape=[28, 28, 1]))
+    model.add(LeakyReLU())
+    model.add(Dropout(0.3))
 
-    model.add(layers.Conv2D(128, (5, 5), strides=(2, 2), padding='same'))
-    model.add(layers.LeakyReLU())
-    model.add(layers.Dropout(0.3))
+    model.add(Conv2D(128, (5, 5), strides=(2, 2), padding='same'))
+    model.add(LeakyReLU())
+    model.add(Dropout(0.3))
 
-    model.add(layers.Flatten())
-    model.add(layers.Dense(1))
+    model.add(Flatten())
+    model.add(Dense(1))
 
     img = keras.Input(shape=(28,28,1))
     label = keras.Input(shape=(1,))
 
-    label_embedding = layers.Flatten()(layers.Embedding(10, np.prod((28,28,1)))(label))
-    flat_img = layers.Flatten()(img)
+    label_embedding = Flatten()(Embedding(10, np.prod((28,28,1)))(label))
+    flat_img = Flatten()(img)
 
-    model_input = layers.multiply([flat_img, label_embedding])
+    model_input = multiply([flat_img, label_embedding])
     model_input = tf.reshape(model_input,[-1,28,28,1])
     validity = model(model_input)
     return Model([img,label],validity)
@@ -130,10 +131,9 @@ def generate_and_save_images(generator, epoch, test_noise, test_label):
         plt.title(str(test_label[i][0]))
         plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
         plt.axis('off')
-
-    plt.savefig('./output/image_at_epoch_{:04d}.png'.format(epoch))
+    plt.tight_layout()
+    plt.savefig('./output/cgan_image_at_epoch_{:04d}.png'.format(epoch))
     plt.show()
-    print(test_label)
 
 
 def train(generator, discriminator, dataset, epochs):
