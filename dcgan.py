@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras import layers
+from tensorflow.keras.layers import Dense, BatchNormalization, LeakyReLU, Reshape, Conv2DTranspose, Conv2D, Dropout, Flatten
 from tensorflow.compat.v1 import ConfigProto
 from tensorflow.compat.v1 import InteractiveSession
 import matplotlib.pyplot as plt
@@ -8,55 +8,57 @@ config = ConfigProto()
 config.gpu_options.allow_growth = True
 session = InteractiveSession(config=config)
 
-cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+bce = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 generator_optimizer = tf.keras.optimizers.Adam(1e-4)
 discriminator_optimizer = tf.keras.optimizers.Adam(1e-4)
 noise_dim = 100
 BUFFER_SIZE = 60000
 BATCH_SIZE = 256
 num_examples_to_generate = 16
-EPOCHS = 5
-
+EPOCHS = 1
+generator_name = "dcgan_"+str(BATCH_SIZE)+"_"+str(EPOCHS)+"_generator"
+discriminator_name = "dcgan_"+str(BATCH_SIZE)+"_"+str(EPOCHS)+"_discriminator"
 
 def make_generator_model():
     model = tf.keras.Sequential()
-    model.add(layers.Dense(7 * 7 * 256, use_bias=False, input_shape=(100,)))
-    model.add(layers.BatchNormalization())
-    model.add(layers.LeakyReLU())
+    model.add(Dense(7 * 7 * 256, use_bias=False, input_shape=(100,)))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
 
-    model.add(layers.Reshape((7, 7, 256)))
-    model.add(layers.Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False))
+    model.add(Reshape((7, 7, 256)))
+    model.add(Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False))
 
-    model.add(layers.BatchNormalization())
-    model.add(layers.LeakyReLU())
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
 
-    model.add(layers.Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', use_bias=False))
-    model.add(layers.BatchNormalization())
-    model.add(layers.LeakyReLU())
+    model.add(Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', use_bias=False))
+    model.add(BatchNormalization())
+    model.add(LeakyReLU())
 
-    model.add(layers.Conv2DTranspose(1, (5, 5), strides=(2, 2), padding='same', use_bias=False, activation='tanh'))
+    model.add(Conv2DTranspose(1, (5, 5), strides=(2, 2), padding='same', use_bias=False, activation='tanh'))
 
     return model
 
 
 def make_discriminator_model():
     model = tf.keras.Sequential()
-    model.add(layers.Conv2D(64, (5, 5), strides=(2, 2), padding='same', input_shape=[28, 28, 1]))
-    model.add(layers.LeakyReLU())
-    model.add(layers.Dropout(0.3))
+    model.add(Conv2D(64, (5, 5), strides=(2, 2), padding='same', input_shape=[28, 28, 1]))
+    model.add(LeakyReLU())
+    model.add(Dropout(0.3))
  
-    model.add(layers.Conv2D(128, (5, 5), strides=(2, 2), padding='same'))
-    model.add(layers.LeakyReLU())
-    model.add(layers.Dropout(0.3))
+    model.add(Conv2D(128, (5, 5), strides=(2, 2), padding='same'))
+    model.add(LeakyReLU())
+    model.add(Dropout(0.3))
  
-    model.add(layers.Flatten())
-    model.add(layers.Dense(1))
+    model.add(Flatten())
+    model.add(Dense(1))
  
     return model
 
 
 def test(generator, discriminator):
     noise = tf.random.normal([1, 100])
+    print(noise)
     generated_image = generator(noise, training=False)
     plt.imshow(generated_image[0, :, :, 0], cmap='gray')
     decision = discriminator(generated_image)
@@ -64,14 +66,15 @@ def test(generator, discriminator):
 
 
 def discriminator_loss(real_output, fake_output):
-    real_loss = cross_entropy(tf.ones_like(real_output), real_output)
-    fake_loss = cross_entropy(tf.zeros_like(fake_output), fake_output)
+    real_loss = bce(tf.ones_like(real_output), real_output)
+    fake_loss = bce(tf.zeros_like(fake_output), fake_output)
     total_loss = real_loss + fake_loss
     return total_loss
 
 
 def generator_loss(fake_output):
-    return cross_entropy(tf.ones_like(fake_output), fake_output)
+    return bce(tf.ones_like(fake_output), fake_output)
+
 
 @tf.function
 def train_step_discriminator(generator,discriminator,images,noise):
@@ -110,8 +113,18 @@ def generate_and_save_images(generator, epoch, test_input):
         plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
         plt.axis('off')
  
-    plt.savefig('./output/image_at_epoch_{:04d}.png'.format(epoch))
+    plt.savefig('output/dcgan_image_at_epoch_{:04d}.png'.format(epoch))
     plt.show()
+
+
+def save(model, model_name):
+    model_path = "saved_model/%s.json" % model_name
+    weights_path = "saved_model/%s_weights.hdf5" % model_name
+    options = {"file_arch": model_path,
+               "file_weight": weights_path}
+    json_string = model.to_json()
+    open(options['file_arch'], 'w').write(json_string)
+    model.save_weights(options['file_weight'])
 
 
 def train(generator, discriminator, dataset, epochs):
@@ -125,6 +138,8 @@ def train(generator, discriminator, dataset, epochs):
             print("batch %d, gen_loss %f,disc_loss %f" % (i, g.numpy(), d.numpy()))
 
     generate_and_save_images(generator, epochs, seed)
+    save(generator,generator_name)
+    save(discriminator, discriminator_name)
 
 
 if __name__ == '__main__':
@@ -137,5 +152,5 @@ if __name__ == '__main__':
 
     gen = make_generator_model()
     disc = make_discriminator_model()
-
+    # test(gen,disc)
     train(gen, disc, train_dataset, EPOCHS)
